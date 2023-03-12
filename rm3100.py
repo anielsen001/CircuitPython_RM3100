@@ -51,6 +51,7 @@ except ImportError:
 _POLL = const(0x0)
 _CMM = const(0x01)  # continuous mode
 _CCX = const(0x04)  # cycle counts
+_NOS = const(0x0A) # NOS - number of samples to accumulate, undocumented
 _TMRC = const(0x0B)  # timer
 _MX = const(0x24)  # measurements
 _STATUS = const(0x34)
@@ -65,15 +66,45 @@ class _RM3100:
     This is an abstract parent class, please use RM3100_I2C or RM3100_SPI
     """
 
-    def __init__(self, cycle_count: int = 200, drdy_pin: Optional[Pin] = None):
+    def __init__(
+        self,
+        cycle_count: int = 200,
+        drdy_pin: Optional[Pin] = None,
+        nos_count: int = None,
+        ):
         self.cycle_count = cycle_count
         self.drdy_pin = drdy_pin
+
         # set cycle count
         values = struct.pack(
             ">HHH", self.cycle_count, self.cycle_count, self.cycle_count
         )
         self._write_reg(_CCX, values)
+
+        if nos_count is None:
+        # read NOS value if no requested value
+            self._nos_count = self._read_reg(_NOS)
+        else:
+        # set NOS value as requested
+            #self.nos_count(nos_count)
+            #raise Exception('this fails to work correctly')
+            self._write_reg(_NOS,struct.pack(">H",nos_count))
+            self._nos_count = nos_count
+
         self.continuous = False
+
+    @property
+    def nos_count(self) -> int:
+        return self._read_reg(_NOS)
+
+    @nos_count.setter
+    def nos_count(self,count):
+        values = struct.pack(
+                ">H", count
+            )
+        self._write_reg(_NOS,values)
+        self._nos_count = count
+        
 
     @property
     def measurement_complete(self) -> bool:
@@ -166,7 +197,7 @@ class _RM3100:
         :return: Reading in µT
         :rtype: (float,float,float)
         """
-        factor = _UT_PER_CYCLE / self.cycle_count
+        factor = _UT_PER_CYCLE / self.cycle_count / self.nos_count
         return tuple(x * factor for x in value)
 
     @property
@@ -218,9 +249,10 @@ class RM3100_I2C(_RM3100):
         i2c_address: int = 0x20,
         cycle_count: int = 200,
         drdy_pin: Optional[Pin] = None,
+        nos_count: int = None,
     ):
         self.device: I2CDevice = I2CDevice(bus, i2c_address)
-        super().__init__(cycle_count, drdy_pin)
+        super().__init__(cycle_count, drdy_pin, nos_count=nos_count)
 
     def _write_reg(self, addr: int, data: bytes):
         data = bytes([addr]) + data
